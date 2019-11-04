@@ -14,6 +14,8 @@ SCREEN_TITLE = 'Careenium'
 
 MODES = ['Circle', 'Pipe', 'Box', 'Static', 'Pin Joint', 'Pivot Joint']
 
+GAME_MODES = ['Gravity', 'Setup', 'No Gravity']
+
 FRICTION = 0.95
 
 
@@ -63,6 +65,7 @@ class Careenium(arcade.Window):
         self.mouse_pos = 0, 0
         self.joints = []
 
+        self.game_mode = 0
         self.draw_time = 0
         self.processing_time = 0
 
@@ -77,6 +80,17 @@ class Careenium(arcade.Window):
             return (val + (GRID // 2)) // GRID * GRID
         else:
             return val
+
+    def mode_switcher(self):
+        if self.game_mode == 0:
+            self.space.gravity = (0.0, -900.0)
+            self.space.damping = 0.95
+        if self.game_mode == 1:
+            self.space.gravity = (0.0, 0.0)
+            self.space.damping = 0
+        if self.game_mode == 2:
+            self.space.gravity = (0.0, 0.0)
+            self.space.damping = 1
 
     def delete_object(self, obj):
         if type(obj.shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:
@@ -127,6 +141,7 @@ class Careenium(arcade.Window):
 
         output = f"Drawing time: {self.draw_time:.3f}"
         arcade.draw_text(output, 20, SCREEN_HEIGHT - 40, arcade.color.WHITE)
+        arcade.draw_text(text=f"{GAME_MODES[self.game_mode]}", start_x=400, start_y=32, color=arcade.color.WHITE, font_size=16, align='right')
 
         arcade.draw_text(text=f"{MODES[self.creation_mode]}", start_x=20, start_y=32, color=arcade.color.WHITE, font_size=16, align='right')
 
@@ -309,6 +324,12 @@ class Careenium(arcade.Window):
             self.grid = not self.grid
         if symbol == arcade.key.LSHIFT or arcade.key.RSHIFT:
             self.snapping = True
+        if symbol == arcade.key.UP and self.game_mode < len(MODES) - 1:
+            self.game_mode += 1
+            self.mode_switcher()
+        if symbol == arcade.key.DOWN and 0 < self.game_mode:
+            self.game_mode -= 1
+            self.mode_switcher()
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.LSHIFT or arcade.key.RSHIFT:
@@ -316,7 +337,7 @@ class Careenium(arcade.Window):
 
     def on_update(self, delta_time):
         start_time = timeit.default_timer()
-        if not self.paused:
+        if not self.game_mode == 1:
             self.tick += 1
 
         if self.tick % 60 == 0:
