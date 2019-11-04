@@ -330,7 +330,7 @@ class Careenium(arcade.Window):
             self.shape_being_dragged.shape.body.velocity = 0, 0
 
         for sprite in self.sprite_list:
-            sprite.center_x = sprite.pymunk_shape.body.position.x
+            sprite.center_x = sprite.pymunk_shape.body.position.xis
             sprite.center_y = sprite.pymunk_shape.body.position.y
             sprite.angle = math.degrees(sprite.pymunk_shape.body.angle)
             if sprite.pymunk_shape.body.position.y < -100:
