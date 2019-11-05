@@ -5,14 +5,14 @@ from functools import lru_cache
 import random
 import timeit
 
-SCALE = 2.5
-GRID = 32
+SCALE = 5
+GRID = 16
 SCREEN_WIDTH = int(16 * SCALE * GRID)
 SCREEN_HEIGHT = int(9 * SCALE * GRID)
 
 SCREEN_TITLE = 'Careenium'
 
-MODES = ['Circle', 'Pipe', 'Box', 'Static', 'Pin Joint', 'Pivot Joint']
+MODES = ['Circle', 'Pipe', 'Box', 'Static']
 
 GAME_MODES = ['Gravity', 'Setup', 'No Gravity']
 
@@ -47,31 +47,34 @@ class Careenium(arcade.Window):
 
         self.space = pymunk.Space()
         self.space.gravity = (0.0, -900.0)
+        self.space.sleep_time_threshold = 100
 
         self.sprite_list: arcade.SpriteList[PhysicsSprite] = arcade.SpriteList()
 
         self.shape_being_dragged = None  # if a shape is being moved it will be stored here
         self.shape_a = None  # if two bodies are being tethered they will be stored here
         self.shape_b = None
+        self.shape_a_connection_point = None
+        self.shape_b_connection_point = None
+        self.v_point = None
         self.point_pair = None
+        self.joints = []
         self.joint_objects = None
-        self.joints = None
-        self.wall_objects = None
         self.walls = []
+        self.wall_objects = None
         self.pipes = []
         self.mouse_down = False
         self.grid = False
         self.snapping = False
         self.mouse_pos = 0, 0
+        self.mouse_button = None
         self.joints = []
 
         self.game_mode = 0
         self.draw_time = 0
         self.processing_time = 0
 
-        self.paused = False
         self.creation_mode = 0
-        self.tick_note = 0
         self.create_walls()
         self.tick = 0
 
@@ -118,7 +121,7 @@ class Careenium(arcade.Window):
     def create_joints(self):
         self.joint_objects = arcade.ShapeElementList()
         for joint in self.joints:
-            curr_joint = arcade.create_line(start_x=joint.a.position.x, start_y=joint.a.position.y, end_x=joint.b.position.x, end_y=joint.b.position.y, color=arcade.color.RED, line_width=2)
+            curr_joint = arcade.create_line(start_x=joint.a.local_to_world(joint.anchor_a).x, start_y=joint.a.local_to_world(joint.anchor_a).y, end_x=joint.b.local_to_world(joint.anchor_b).x, end_y=joint.b.local_to_world(joint.anchor_b).y, color=arcade.color.RED, line_width=2)
             self.joint_objects.append(curr_joint)
 
     def on_draw(self):
@@ -129,12 +132,15 @@ class Careenium(arcade.Window):
         self.sprite_list.draw()
         self.wall_objects.draw()
         if self.joint_objects:
-            if self.tick % 3 == 0:
-                self.create_joints()
+            self.create_joints()
             self.joint_objects.draw()
-
         if self.point_pair and self.mouse_down and self.point_pair != self.mouse_pos:
-            arcade.draw_line(color=arcade.color.GREEN, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
+            if self.mouse_button == 4:
+                arcade.draw_line(color=arcade.color.GREEN, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
+            elif self.mouse_button == 1 and self.creation_mode < 4:
+                arcade.draw_line(color=arcade.color.RED, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
+            elif self.mouse_button == 1:
+                arcade.draw_line(color=arcade.color.BLUE, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
 
         output = f"Processing time: {self.processing_time:.3f}"
         arcade.draw_text(output, 20, SCREEN_HEIGHT - 20, arcade.color.WHITE)
@@ -151,7 +157,7 @@ class Careenium(arcade.Window):
         self.draw_time = timeit.default_timer() - draw_start_time
 
     def make_box(self, x, y):
-        size = GRID
+        size = GRID * 2
         mass = 12.0
         moment = pymunk.moment_for_box(mass, (size, size))
         body = pymunk.Body(mass, moment)
@@ -163,7 +169,7 @@ class Careenium(arcade.Window):
         self.sprite_list.append(sprite)
 
     def make_static(self, x, y):
-        size = GRID
+        size = GRID * 2
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         body.position = pymunk.Vec2d(x, y)
         shape = pymunk.Poly.create_box(body, (size, size))
@@ -173,14 +179,15 @@ class Careenium(arcade.Window):
         sprite = BoxSprite(shape, "images/boxCrate_double.png", width=size, height=size)
         self.sprite_list.append(sprite)
 
-    def make_circle(self, x, y):
-        size = GRID // 2 - (random.randint(0, 2) / 2)
+    def make_circle(self, x, y, v=(0, 0)):
+        size = (GRID * 3) // 2 - (random.randint(0, 2) / 2)
         mass = 12.0 + (random.random() * 2)
         moment = pymunk.moment_for_circle(mass, 0, size, (0, 0))
         body = pymunk.Body(mass, moment)
         body.position = pymunk.Vec2d(x + random.randint(-2, 2), y + random.randint(-2, 2))
         body.angle = random.randint(0, 359)
-        body.velocity = (0, random.randint(-250, -200))
+        body.angular_velocity = random.randint(-20, 20)
+        body.velocity = v
         shape = pymunk.Circle(body, size, pymunk.Vec2d(0, 0))
         shape.friction = FRICTION
         shape.elasticity = 0.3
@@ -189,7 +196,7 @@ class Careenium(arcade.Window):
         self.sprite_list.append(sprite)
 
     def make_pipe(self, x, y):
-        size = GRID // 2 + (GRID // 16)
+        size = (GRID * 2) // 2 + (GRID // 8)
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         body.position = pymunk.Vec2d(x, y)
         shape = pymunk.Circle(body, size, pymunk.Vec2d(0, 0))
@@ -211,10 +218,12 @@ class Careenium(arcade.Window):
         if self.shape_a is None:
             self.point_pair = self.rr(x), self.rr(y)
             self.shape_a = shape_selected
+            self.shape_a_connection_point = self.shape_a.shape.body.world_to_local((self.rr(x), self.rr(y)))
         elif self.shape_b is None:
             if self.shape_a.shape != shape_selected.shape:
                 self.shape_b = shape_selected
-                joint = pymunk.PinJoint(self.shape_a.shape.body, self.shape_b.shape.body)
+                self.shape_b_connection_point = self.shape_b.shape.body.world_to_local((self.rr(x), self.rr(y)))
+                joint = pymunk.PinJoint(self.shape_a.shape.body, self.shape_b.shape.body, self.shape_a_connection_point, self.shape_b_connection_point)
                 self.space.add(joint)
                 self.joints.append(joint)
                 self.create_joints()
@@ -262,50 +271,52 @@ class Careenium(arcade.Window):
         return None
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+        self.mouse_button = button
+        cur_shape = self.get_shape(x, y)
+
         if button == 1:
-            cur_shape = self.get_shape(x, y)
             if modifiers in [0, 16]:
                 if self.get_shape(x, y) is None:
                     if self.creation_mode == 0:
-                        self.make_circle(self.rr(x), self.rr(y))
+                        self.point_pair = self.rr(x), self.rr(y)
+                        self.mouse_down = True
                     elif self.creation_mode == 1:
                         self.make_pipe(self.rr(x), self.rr(y))
                     elif self.creation_mode == 2:
                         self.make_box(self.rr(x), self.rr(y))
                     elif self.creation_mode == 3:
                         self.make_static(self.rr(x), self.rr(y))
-
                 else:
-                    if self.creation_mode == 4:
-                        self.make_pin_joint(self.rr(x), self.rr(y))
-                        self.mouse_down = True
-                    elif self.creation_mode == 5:
-                        self.make_pivot_joint(x, y)
-                        self.mouse_down = True
-                    else:
-                        self.shape_being_dragged = cur_shape
+                    self.shape_being_dragged = cur_shape
             else:
                 if cur_shape:
                     self.delete_object(cur_shape)
 
         elif button == 4:
-            self.make_line(self.rr(x), self.rr(y))
-            self.mouse_down = True
+            if cur_shape:
+                self.make_pin_joint(self.rr(x), self.rr(y))
+                self.mouse_down = True
+            else:
+                self.make_line(self.rr(x), self.rr(y))
+                self.mouse_down = True
 
     def on_mouse_release(self, x, y, button, modifiers):
         if self.mouse_down:
-            if button == 1 and self.creation_mode == 4:
+            if button == 1 and self.creation_mode == 0:
+                self.make_circle(self.point_pair[0], self.point_pair[1], v=((self.point_pair[0] - self.rr(x)) * 5, (self.point_pair[1] - self.rr(y)) * 5))
+            if button == 4 and self.get_shape(x, y):
                 self.make_pin_joint(x, y)
-            if button == 1 and self.creation_mode == 5:
-                self.make_pivot_joint(x, y)
-            if button == 4:
+            elif button == 4:
                 self.make_line(x, y)
         self.point_pair = None
         self.shape_being_dragged = None
         self.mouse_down = False
+        self.shape_a = None
+        self.shape_b = None
+        self.shape_a_connection_point = None
+        self.shape_b_connection_point = None
 
     def on_mouse_motion(self, x, y, dx, dy):
-        self.tick_note = self.tick
         if self.snapping:
             if self.point_pair:
                 if abs(self.rr(x) - self.point_pair[0]) < abs(self.rr(y) - self.point_pair[1]):
@@ -340,9 +351,9 @@ class Careenium(arcade.Window):
         if not self.game_mode == 1:
             self.tick += 1
 
-        if self.tick % 60 == 0:
-            for pipe in self.pipes:
-                self.make_circle(x=pipe.pymunk_shape.body.position.x, y=pipe.pymunk_shape.body.position.y)
+            if self.tick % 60 == 0:
+                for pipe in self.pipes:
+                    self.make_circle(x=pipe.pymunk_shape.body.position.x, y=pipe.pymunk_shape.body.position.y)
 
         self.space.step(1 / 80.0)
 
