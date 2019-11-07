@@ -11,7 +11,7 @@ SCREEN_HEIGHT = int(9 * SCALE * GRID)
 
 SCREEN_TITLE = 'Careenium'
 
-OBJECT_MODES = ['Circle', 'Pipe', 'Box', 'Static', 'Rectangle']
+OBJECT_MODES = ['Circle', 'Box', 'Pipe', 'Static']
 
 JOINT_MODES = ['Pin', 'Slide', 'Motor', 'Pivot']
 
@@ -22,8 +22,6 @@ FRICTION = 0.95
 object_layer = 1
 
 background_layer = 2
-
-
 
 
 class PhysicsSprite(arcade.Sprite):
@@ -42,20 +40,10 @@ class CircleSprite(PhysicsSprite):
 
 
 class BoxSprite(PhysicsSprite):
-    def __init__(self, pymunk_shape, filename, width, height, pipe_vel=0):
+    def __init__(self, pymunk_shape, filename, width, height):
         super().__init__(pymunk_shape, filename)
         self.width = width
         self.height = height
-        self.pipe_vel = pipe_vel
-
-
-class JointSprite(arcade.Sprite):
-    def __init__(self, filename, width, height, a, b):
-        super().__init__(filename)
-        self.width = width
-        self.height = height
-        self.angle = math.atan2(a[0]-b[0], a[1]-b[1])
-
 
 class Careenium(arcade.Window):
     def __init__(self, width, height, title):
@@ -73,7 +61,6 @@ class Careenium(arcade.Window):
         self.shape_b = None
         self.shape_a_connection_point = None
         self.shape_b_connection_point = None
-        self.v_point = None
         self.point_pair = None
         self.joints = []
         self.joint_objects = None
@@ -86,7 +73,6 @@ class Careenium(arcade.Window):
         self.mouse_pos = 0, 0
         self.mouse_button = None
         self.joints = []
-        self.relative_drag_distance = None
 
         self.tick = 0
         self.draw_time = 0
@@ -95,8 +81,6 @@ class Careenium(arcade.Window):
         self.game_mode = 0
         self.object_mode = 0
         self.joint_mode = 0
-
-        self.create_walls()
 
     def rr(self, val):
         if self.grid:
@@ -121,20 +105,17 @@ class Careenium(arcade.Window):
 
     def delete_object(self, obj):
         """Deletes a given object from the world, as well as from anywhere it may be referenced."""
-        if type(obj.shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:
-            for sprite in self.sprite_list:
-                if sprite.pymunk_shape == obj.shape:
-                    sprite.kill()
-                    for joint in self.joints:
-                        if sprite.pymunk_shape.body in [joint.a, joint.b]:
-                            self.joints.remove(joint)
-                            self.space.remove(joint)
-                    for pipe in self.pipes:
-                        if pipe.pymunk_shape == obj.shape:
-                            self.pipes.remove(pipe)
-        if type(obj.shape) is pymunk.shapes.Segment:
-            self.walls.remove(obj.shape)
-            self.create_walls()
+        for sprite in self.sprite_list:
+            if sprite.pymunk_shape == obj.shape:
+                sprite.kill()
+                for joint in self.joints:
+                    if sprite.pymunk_shape.body in [joint[1].a, joint[1].b]:
+                        self.joints.remove(joint)
+                        self.space.remove(joint[1])
+                        self.space.remove(joint[0].body)
+                for pipe in self.pipes:
+                    if pipe.pymunk_shape == obj.shape:
+                        self.pipes.remove(pipe)
         self.space.remove(obj.shape, obj.shape.body)
 
     def clear_variables(self):  # just a holder function to clear everything
@@ -146,27 +127,11 @@ class Careenium(arcade.Window):
         self.shape_a_connection_point = None
         self.shape_b_connection_point = None
 
-    def create_walls(self):
-        self.wall_objects = arcade.ShapeElementList()
-        for wall in self.walls:
-            curr_wall = arcade.create_line(start_x=wall.a.x, start_y=wall.a.y-2, end_x=wall.b.x, end_y=wall.b.y-2, color=(200, 200, 200), line_width=4)
-            self.wall_objects.append(curr_wall)
-        for wall in self.walls:
-            curr_wall = arcade.create_line(start_x=wall.a.x, start_y=wall.a.y, end_x=wall.b.x, end_y=wall.b.y, color=arcade.color.WHITE, line_width=4)
-            self.wall_objects.append(curr_wall)
-
-    def create_joints(self):
-        self.joint_objects = arcade.ShapeElementList()
-        for joint in self.joints:
-            curr_joint = arcade.create_line(start_x=joint.a.local_to_world(joint.anchor_a).x, start_y=joint.a.local_to_world(joint.anchor_a).y, end_x=joint.b.local_to_world(joint.anchor_b).x, end_y=joint.b.local_to_world(joint.anchor_b).y, color=arcade.color.RED, line_width=2)
-            self.joint_objects.append(curr_joint)
-
     def on_draw(self):
         arcade.start_render()
 
         draw_start_time = timeit.default_timer()
 
-        self.wall_objects.draw()
         self.sprite_list.draw()
         if self.point_pair and self.mouse_down and self.point_pair != self.mouse_pos:
             if self.mouse_button == 4:
@@ -188,43 +153,56 @@ class Careenium(arcade.Window):
 
         if self.grid:
             arcade.draw_point(x=self.mouse_pos[0], y=self.mouse_pos[1],  color=(156, 32, 32, 255), size=10)
-        if self.whatever:
-            arcade.draw_point(*self.whatever, color=arcade.color.RED, size=10)
+
         self.draw_time = timeit.default_timer() - draw_start_time
 
-    def make_box(self, x, y, v):
+    def make_circle(self, pos, vel=(0, 0)):
+        x, y = pos
+        size = GRID
+        mass = 12.0
+        moment = pymunk.moment_for_circle(mass, 0, size, (0, 0))
+        body = pymunk.Body(mass, moment)
+        body.position = pymunk.Vec2d(x, y)
+        body.velocity = vel
+        shape = pymunk.Circle(body, size, pymunk.Vec2d(0, 0))
+        shape.friction = FRICTION
+        shape.elasticity = 0.3
+        self.space.add(body, shape)
+        shape.filter = pymunk.ShapeFilter(mask=0b000001, categories=0b000001)
+        sprite = CircleSprite(shape, f"images/hudPlayer_{random.choice(['beige', 'blue', 'green', 'pink', 'yellow'])}.png")
+        self.sprite_list.append(sprite)
+
+    def make_box(self, pos, vel=(0, 0)):
         size = GRID * 2
         mass = 12.0
         moment = pymunk.moment_for_box(mass, (size, size))
         body = pymunk.Body(mass, moment)
-        body.position = pymunk.Vec2d(x, y)
-        body.velocity = v
+        body.position = pymunk.Vec2d(pos)
+        body.velocity = vel
         shape = pymunk.Poly.create_box(body, (size, size))
         shape.friction = FRICTION
         self.space.add(body, shape)
+        shape.filter = pymunk.ShapeFilter(mask=0b000001, categories=0b000001)
         sprite = BoxSprite(shape, "images/boxCrate.png", width=size, height=size)
         self.sprite_list.append(sprite)
 
-    def make_rectangle(self, x, y, start, end):
-        length = self.ol_pythag(start, end) / 2
-        verticies = ((length, 2), (length, -2), (-length, -2), (-length, 2))
+    def make_pipe(self, pos, vel):
+        size = (GRID * 2) // 2 + (GRID // 8)
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-        body.position = pymunk.Vec2d(x, y)
-        shape = pymunk.Poly(body, verticies)
-        body.angle = math.atan2(end[1]-start[1], end[0]-start[0])
-        sprite = BoxSprite(shape, "images/line.png", width=length * 2, height=4)
-
-        body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        shape = pymunk.Segment(body, start, end, 3.0)
+        body.position = pymunk.Vec2d(pos)
+        shape = pymunk.Circle(body, size, pymunk.Vec2d(0, 0))
         shape.friction = FRICTION
-        shape.elasticity = 0.95
+        shape.elasticity = 0.3
         self.space.add(body, shape)
+        shape.filter = pymunk.ShapeFilter(mask=0b000010, categories=0b000010)
+        sprite = CircleSprite(shape, "images/pipe.png", pipe_vel=vel)
         self.sprite_list.append(sprite)
+        self.pipes.append(sprite)
 
-    def make_static(self, x, y):
+    def make_static(self, pos):
         size = GRID * 2
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-        body.position = pymunk.Vec2d(x, y)
+        body.position = pymunk.Vec2d(pos)
         shape = pymunk.Poly.create_box(body, (size, size))
         shape.friction = FRICTION
         shape.elasticity = 1.0
@@ -232,203 +210,114 @@ class Careenium(arcade.Window):
         sprite = BoxSprite(shape, "images/boxCrate_double.png", width=size, height=size)
         self.sprite_list.append(sprite)
 
-    def make_circle(self, x, y, v=(0, 0)):
-        size = GRID - 4
-        mass = 12.0
-        moment = pymunk.moment_for_circle(mass, 0, size, (0, 0))
-        body = pymunk.Body(mass, moment)
-        body.position = pymunk.Vec2d(x, y)
-        body.velocity = v
-        shape = pymunk.Circle(body, size, pymunk.Vec2d(0, 0))
-        shape.friction = FRICTION
-        shape.elasticity = 0.3
-        self.space.add(body, shape)
-        shape.filter = pymunk.ShapeFilter(mask=0b10, categories=0b10)
-        sprite = CircleSprite(shape, f"images/hudPlayer_{random.choice(['beige', 'blue', 'green', 'pink', 'yellow'])}.png")
-        self.sprite_list.append(sprite)
-
-    def make_pipe(self, x, y, v):
-        size = (GRID * 2) // 2 + (GRID // 8)
-        body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-        body.position = pymunk.Vec2d(x, y)
-        shape = pymunk.Circle(body, size, pymunk.Vec2d(0, 0))
-        shape.friction = FRICTION
-        shape.elasticity = 0.3
-        self.space.add(body, shape)
-        shape.filter = pymunk.ShapeFilter(mask=0b01, categories=0b01)
-        sprite = CircleSprite(shape, "images/pipe.png", pipe_vel=v)
-        self.sprite_list.append(sprite)
-        self.pipes.append(sprite)
-
-    def make_pin_joint(self, x, y):
-        shape_selected = self.get_shape(x, y)
-        if shape_selected is None:
-            self.clear_variables()
-            return
-        if self.shape_a is None:
-            self.point_pair = x, y
-            self.shape_a = shape_selected
-            self.shape_a_connection_point = self.shape_a.shape.body.world_to_local(self.point_pair)
-        elif self.shape_b is None:
-            self.point_pair = x, y
-            if self.shape_a.shape != shape_selected.shape:
-
-                self.shape_b = shape_selected
-                self.shape_b_connection_point = self.shape_b.shape.body.world_to_local(self.point_pair)
-
-                start = self.shape_a.shape.body.local_to_world(self.shape_a_connection_point)
-                end = self.shape_b.shape.body.local_to_world(self.shape_b_connection_point)
-                length = self.ol_pythag(start, end) / 2
-                verticies = ((length, 2), (length, -2), (-length, -2), (-length, 2))
-                body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-                body.position = pymunk.Vec2d(start[0] + (end[0] - start[0]) // 2, start[1] + (end[1] - start[1]) // 2)
-                shape = pymunk.Poly(body, verticies)
-                body.angle = math.atan2(end[1] - start[1], end[0] - start[0])
-                shape.filter = pymunk.ShapeFilter(mask=0b01, categories=0b01)
-                self.space.add(body, shape)
-
-                sprite = BoxSprite(shape, "images/line.png", width=length * 2, height=4)
-                self.sprite_list.append(sprite)
-
-                joint = pymunk.PinJoint(self.shape_a.shape.body, self.shape_b.shape.body, self.shape_a_connection_point, self.shape_b_connection_point)
-                self.joints.append((sprite, joint))
-
-                joint.filter = pymunk.ShapeFilter(mask=0b01, categories=0b01)
-                self.space.add(joint)
-            self.clear_variables()
-
-    def make_pivot_joint(self, x, y):
-        shape_selected = self.get_shape(x, y)
-        if shape_selected is None:
-            self.clear_variables()
-            return
-        if self.shape_a is None:
-            self.shape_a = shape_selected
-        elif self.shape_b is None:
-            if self.shape_a.shape != shape_selected.shape:
-                self.shape_b = shape_selected
-        elif self.shape_a and self.shape_b:
-            joint = pymunk.PivotJoint(self.shape_a.shape.body, self.shape_b.shape.body, shape_selected.shape.body.local_to_world(shape_selected.shape.body.position))
-            self.space.add(joint)
-            self.clear_variables()
-
-    def make_slide_joint(self, x, y):
-        shape_selected = self.get_shape(x, y)
-        if shape_selected is None:
-            self.clear_variables()
-            return
-        if self.shape_a is None:
-            self.point_pair = x, y
-            self.shape_a = shape_selected
-            self.shape_a_connection_point = self.shape_a.shape.body.world_to_local(self.point_pair)
-        elif self.shape_b is None:
-            if self.shape_a.shape != shape_selected.shape:
-                self.shape_b = shape_selected
-                self.shape_b_connection_point = self.shape_b.shape.body.world_to_local(self.point_pair)
-                print(self.shape_a.shape.body.position, self.shape_b.shape.body.position)
-                joint_dist = self.ol_pythag(self.shape_a.shape.body.position, self.shape_b.shape.body.position)
-                joint = pymunk.SlideJoint(self.shape_a.shape.body, self.shape_b.shape.body, self.shape_a_connection_point, self.shape_b_connection_point, min=joint_dist, max=joint_dist * 2)
-                self.space.add(joint)
-                self.joints.append(joint)
-                self.create_joints()
-            self.clear_variables()
-
-    def make_motor(self, x, y):
-        shape_selected = self.get_shape(x, y)
-        if shape_selected is None:
-            self.clear_variables()
-            return
-        if self.shape_a is None:
-            self.point_pair = x, y
-            self.shape_a = shape_selected
-        elif self.shape_b is None:
-            if self.shape_a.shape != shape_selected.shape:
-                self.shape_b = shape_selected
-                joint = pymunk.SimpleMotor(self.shape_a.shape.body, self.shape_b.shape.body, rate=20)
-                self.space.add(joint)
-            self.clear_variables()
-
-    def make_line(self, x, y, start, end, length):
+    def make_pin_joint(self, shape_a, shape_b, point_a, point_b):
+        length = self.ol_pythag(point_a, point_b) / 2
         verticies = ((length, 2), (length, -2), (-length, -2), (-length, 2))
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-        body.position = pymunk.Vec2d(x, y)
+        body.position = pymunk.Vec2d(point_a[0] + (point_b[0] - point_a[0]) / 2, point_a[1] + (point_b[1] - point_a[1]) / 2)
         shape = pymunk.Poly(body, verticies)
+        body.angle = math.atan2(point_b[1] - point_a[1], point_b[0] - point_a[0])
+        shape.filter = pymunk.ShapeFilter(mask=0b100000, categories=0b100000)
+        self.space.add(body, shape)
+        sprite = BoxSprite(shape, "images/wood_joint.png", width=length * 2, height=4)
+        self.sprite_list.append(sprite)
+        joint = pymunk.PinJoint(shape_a.body, shape_b.body, shape_a.body.world_to_local(point_a), shape_b.body.world_to_local(point_b))
+        print(joint.a, joint.b, joint.anchor_a, joint.anchor_b)
+        self.joints.append((sprite, joint))
+        self.space.add(joint)
+
+    def make_slide_joint(self, shape_a, shape_b, point_a, point_b):
+
+        joint_len = self.ol_pythag(shape_a.body.position, shape_b.body.position)
+
+        verticies = ((0, 2), (0, -2), (-joint_len, -2), (-joint_len, 2))
+        body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        body.position = pymunk.Vec2d(point_a[0] + (point_b[0] - point_a[0]) / 2, point_a[1] + (point_b[1] - point_a[1]) / 2)
+        body.angle = math.atan2(point_b[1] - point_a[1], point_b[0] - point_a[0])
+        shape = pymunk.Poly(body, verticies)
+        shape.filter = pymunk.ShapeFilter(mask=0b100000, categories=0b100000)
+        self.space.add(body, shape)
+        sprite_a = BoxSprite(shape, "images/wood_joint.png", width=joint_len * 2, height=4)
+        self.sprite_list.append(sprite_a)
+
+        verticies = ((joint_len, 2), (joint_len, -2), (0, -2), (0, 2))
+        body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        body.position = pymunk.Vec2d(point_a[0] + (point_b[0] - point_a[0]) / 2, point_a[1] + (point_b[1] - point_a[1]) / 2)
+        body.angle = math.atan2(point_b[1] - point_a[1], point_b[0] - point_a[0])
+        shape = pymunk.Poly(body, verticies)
+        shape.filter = pymunk.ShapeFilter(mask=0b100000, categories=0b100000)
+        self.space.add(body, shape)
+        sprite_b = BoxSprite(shape, "images/brickGrey.png", width=joint_len * 2, height=4)
+        self.sprite_list.append(sprite_b)
+
+        joint = pymunk.SlideJoint(shape_a.body, shape_b.body, shape_a.body.world_to_local(point_a), shape_b.body.world_to_local(point_b), min=joint_len, max=joint_len * 2)
+        self.space.add(joint)
+        self.joints.append((sprite_a, sprite_b, joint))
+
+    def make_line(self, start, end):
+        line_len = self.ol_pythag(start, end)
+        verticies = ((line_len, 2), (line_len, -2), (-line_len, -2), (-line_len, 2))
+        body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        body.position = pymunk.Vec2d(start[0] + (end[0] - start[0]) / 2, start[1] + (end[1] - start[1]) / 2)
         body.angle = math.atan2(end[1] - start[1], end[0] - start[0])
-        sprite = BoxSprite(shape, "images/line.png", width=length * 2, height=4)
+        shape = pymunk.Poly(body, verticies)
+        sprite = BoxSprite(shape, "images/line.png", width=line_len, height=3)
+        self.sprite_list.append(sprite)
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
         shape = pymunk.Segment(body, start, end, 3.0)
         shape.friction = FRICTION
         shape.elasticity = 0.95
         self.space.add(body, shape)
-        self.sprite_list.append(sprite)
 
-    def get_shape(self, x, y):
-        shape_list = self.space.point_query((x, y), 2, pymunk.ShapeFilter(pymunk.ShapeFilter.ALL_MASKS))
+    def get_shape(self, pos):
+        x, y = pos
+        shape_list = self.space.point_query((x, y), 2, pymunk.ShapeFilter(mask=0b011111, categories=0b011111))
         if shape_list:
             return shape_list[0]
         return None
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+        self.mouse_down = True
         self.mouse_button = button
-        cur_shape = self.get_shape(*self.mouse_pos)
+        self.point_pair = self.mouse_pos
+        cur_shape = self.get_shape(self.mouse_pos)
 
         if button == 1:
             if modifiers in [0, 16]:
-                self.point_pair = self.mouse_pos
                 if cur_shape is None:
                     self.mouse_down = True
                 else:
+                    self.mouse_down = False
                     self.shape_being_dragged = cur_shape
-            else:
-                if cur_shape:
-                    self.delete_object(cur_shape)
+            elif cur_shape:
+                self.delete_object(cur_shape)
 
-        elif button == 4:
-            if cur_shape and type(cur_shape.shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:
-                if self.joint_mode == 0:
-                    self.point_pair = self.mouse_pos
-                    self.make_pin_joint(*self.mouse_pos)
-                    self.mouse_down = True
-                elif self.joint_mode == 1:
-                    self.make_slide_joint(*self.mouse_pos)
-                    self.mouse_down = True
-                elif self.joint_mode == 2:
-                    self.make_motor(*self.mouse_pos)
-                    self.mouse_down = True
-                elif self.joint_mode == 3:
-                    self.make_pivot_joint(*self.mouse_pos)
-            else:
-                self.point_pair = self.mouse_pos
+        elif button == 4 and cur_shape and type(cur_shape.shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:
+            self.shape_a = cur_shape.shape
+            self.shape_a_connection_point = self.mouse_pos
 
-                self.mouse_down = True
-
-    def on_mouse_release(self, x, y, button, modifiers):
-        cur_shape = self.get_shape(x, y)
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        cur_shape = self.get_shape(self.mouse_pos)
         if self.mouse_down:
-            vel = ((self.point_pair[0] - self.mouse_pos[0]) * 4, (self.point_pair[1] - self.mouse_pos[1]) * 4)
-            if button == 1 and self.object_mode == 0:
-                self.make_circle(*self.point_pair, v=vel)
-            if button == 1 and self.object_mode == 1:
-                self.make_pipe(*self.point_pair, v=vel)
-            if button == 1 and self.object_mode == 2:
-                self.make_box(*self.point_pair, v=vel)
-            if button == 1 and self.object_mode == 4:
-                a = min(self.point_pair[0], self.mouse_pos[0]), min(self.point_pair[1], self.mouse_pos[1])
-                b = max(self.point_pair[0], self.mouse_pos[0]), max(self.point_pair[1], self.mouse_pos[1])
-                self.make_rectangle(a[0] + (b[0] - a[0]) // 2, a[1] + (b[1] - a[1]) // 2, start=self.point_pair, end=self.mouse_pos)
-            elif button == 4 and cur_shape and type(cur_shape.shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:
+            if self.mouse_button == 1 and modifiers in [0, 16]:
+                vel = ((self.point_pair[0] - self.mouse_pos[0]) * 4, (self.point_pair[1] - self.mouse_pos[1]) * 4)
+                if self.object_mode == 0:
+                    self.make_circle(self.point_pair, vel=vel)
+                elif self.object_mode == 1:
+                    self.make_box(self.point_pair, vel=vel)
+                elif self.object_mode == 2:
+                    self.make_pipe(self.point_pair, vel=vel)
+                elif self.object_mode == 3:
+                    self.make_static(self.point_pair)
+            elif self.mouse_button == 4 and cur_shape and type(cur_shape.shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:
+                cur_shape.shape.velocity = 0, 0
                 if self.joint_mode == 0:
-                    self.make_pin_joint(*self.mouse_pos)
+                    self.make_pin_joint(self.shape_a, cur_shape.shape, self.shape_a_connection_point, self.mouse_pos)
                 elif self.joint_mode == 1:
-                    self.make_slide_joint(*self.mouse_pos)
-                elif self.joint_mode == 2:
-                    self.make_motor(*self.mouse_pos)
-            elif button == 4:
-                a = min(self.point_pair[0], self.mouse_pos[0]), min(self.point_pair[1], self.mouse_pos[1])
-                b = max(self.point_pair[0], self.mouse_pos[0]), max(self.point_pair[1], self.mouse_pos[1])
-                self.make_rectangle(a[0] + (b[0] - a[0]) // 2, a[1] + (b[1] - a[1]) // 2, start=self.point_pair, end=self.mouse_pos)
-        if self.joint_mode != 3:
-            self.clear_variables()
+                    self.make_slide_joint(self.shape_a, cur_shape.shape, self.shape_a_connection_point, self.mouse_pos)
+            elif self.mouse_button == 4:
+                self.make_line(self.point_pair, self.mouse_pos)
+        self.clear_variables()
 
     def on_mouse_motion(self, x, y, dx, dy):
         if self.snapping:
@@ -477,7 +366,7 @@ class Careenium(arcade.Window):
 
             if self.tick % 60 == 0:
                 for pipe in self.pipes:
-                    self.make_circle(x=pipe.pymunk_shape.body.position.x, y=pipe.pymunk_shape.body.position.y, v=pipe.pipe_vel)
+                    self.make_circle(pipe.pymunk_shape.body.position, pipe.pipe_vel)
 
         self.space.step(1 / 80.0)
 
@@ -490,15 +379,29 @@ class Careenium(arcade.Window):
             sprite.center_y = sprite.pymunk_shape.body.position.y
             sprite.angle = math.degrees(sprite.pymunk_shape.body.angle)
             if not(-SCREEN_WIDTH < sprite.pymunk_shape.body.position.y < SCREEN_WIDTH * 2) or not(-SCREEN_HEIGHT < sprite.pymunk_shape.body.position.y < SCREEN_HEIGHT + SCREEN_HEIGHT):
-                cur_shape = self.get_shape(sprite.pymunk_shape.body.position.x, sprite.pymunk_shape.body.position.y)
+                cur_shape = self.get_shape(sprite.pymunk_shape.body.position)
                 self.delete_object(cur_shape)
 
         for joint in self.joints:
-            start = joint[1].a.local_to_world(joint[1].anchor_a)
-            end = joint[1].b.local_to_world(joint[1].anchor_b)
-            joint[0].center_x = start[0] + (end[0] - start[0]) // 2
-            joint[0].center_y = start[1] + (end[1] - start[1]) // 2
-            joint[0].angle = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
+            if type(joint[-1]) is pymunk.constraint.PinJoint:
+                start = joint[1].a.local_to_world(joint[1].anchor_a)
+                end = joint[1].b.local_to_world(joint[1].anchor_b)
+                joint[0].center_x = start[0] + (end[0] - start[0]) / 2
+                joint[0].center_y = start[1] + (end[1] - start[1]) / 2
+                joint[0].width = self.ol_pythag(start, end)
+                joint[0].angle = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
+            elif type(joint[-1]) is pymunk.constraint.SlideJoint:
+                start = joint[2].a.local_to_world(joint[2].anchor_a)
+                end = joint[2].b.local_to_world(joint[2].anchor_b)
+                joint[0].center_x = start[0] + (end[0] - start[0]) / 4
+                joint[0].center_y = start[1] + (end[1] - start[1]) / 4
+                joint[0].width = min(joint[2].min, self.ol_pythag(start, end))
+                joint[0].angle = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
+
+                joint[1].center_x = start[0] + ((end[0] - start[0]) * 3) / 4
+                joint[1].center_y = start[1] + ((end[1] - start[1]) * 3) / 4
+                joint[1].width = joint[2].min
+                joint[1].angle = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
 
         self.processing_time = timeit.default_timer() - start_time
 
@@ -506,3 +409,6 @@ class Careenium(arcade.Window):
 if __name__ == '__main__':
     window = Careenium(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
     arcade.run()
+
+
+
