@@ -3,23 +3,29 @@ import pymunk
 import math
 import random
 import timeit
+from collections import namedtuple
 
-SCALE = 4
-GRID = 20
+GRID = 24
+SCALE = int(860 / 9 / GRID)
 SCREEN_WIDTH = int(16 * SCALE * GRID)
 SCREEN_HEIGHT = int(9 * SCALE * GRID)
 
 SCREEN_TITLE = 'Careenium'
 
-OBJECT_MODES = ['Circle', 'Box', 'Pipe', 'Static', 'Moving Pipe']
+OBJECT_MODES = ['Circle', 'Box', 'Pipe', 'Static', 'Moving Pipe', 'Plank']
 
-JOINT_MODES = ['Pin', 'Slide']
+JOINT_MODES = ['Pin', 'Slide', 'Motor']
 
 GAME_MODES = ['Gravity', 'Setup', 'No Gravity']
 
-textures = [f'images/{i}.png' for i in ['boxCrate', 'boxCrate_double', 'line', 'wood_joint', 'pipe', 'hudPlayer_beige', 'hudPlayer_blue', 'hudPlayer_green', 'hudPlayer_pink', 'hudPlayer_yellow']]
+textures = [f'images/{i}.png' for i in
+            ['boxCrate', 'boxCrate_double', 'line', 'wood_joint', 'pipe',
+             'hudPlayer_beige', 'hudPlayer_blue', 'hudPlayer_green',
+             'hudPlayer_pink', 'hudPlayer_yellow']]
 
 FRICTION = 0.95
+
+Pos = namedtuple('Position', 'x y')
 
 
 '''more generally switch over from using pymunk objects to using holders, hopefully that will make
@@ -30,29 +36,35 @@ bugs:
 
 
 class PhysicsSprite(arcade.Sprite):
-    def __init__(self, pymunk_shape, filename):
+    def __init__(self, pymunk_shape, filename, is_static=False):
         super().__init__(filename, center_x=pymunk_shape.body.position.x, center_y=pymunk_shape.body.position.y)
         self.pymunk_shape = pymunk_shape
+        self.is_static = is_static
 
 
 class CircleSprite(PhysicsSprite):
-    def __init__(self, pymunk_shape, filename, pipe_vel=0):
+    def __init__(self, pymunk_shape, filename, pipe_vel=0, is_static=False):
         super().__init__(pymunk_shape, filename)
         self.width = pymunk_shape.radius * 2
         self.height = pymunk_shape.radius * 2
         self.pipe_vel = pipe_vel
+        self.is_static = is_static
 
 
 class BoxSprite(PhysicsSprite):
-    def __init__(self, pymunk_shape, filename, width, height):
+    def __init__(self, pymunk_shape, filename, width, height, is_static=False):
         super().__init__(pymunk_shape, filename)
         self.width = width
         self.height = height
+        self.is_static = is_static
 
 
 class Careenium(arcade.Window):
     def __init__(self, width, height, title):
-        super().__init__(width, height, title)
+        super().__init__(width, height, title, antialiasing=False)
+
+        width, height = self.get_size()
+        self.set_viewport(0, width, 0, height)
 
         arcade.set_background_color((80, 120, 132))
 
@@ -76,10 +88,12 @@ class Careenium(arcade.Window):
         self.mouse_down = False
         self.grid = False
         self.snapping = False
-        self.mouse_pos = 0, 0
+        self.mouse_pos = Pos(0, 0)
         self.mouse_button = None
         self.joints = []
         self.need_move = False
+        self.cur_shape = None
+        self.grid_fixer = [0, 0]
 
         self.tick = 0
         self.draw_time = 0
@@ -89,8 +103,15 @@ class Careenium(arcade.Window):
         self.object_mode = 0
         self.joint_mode = 0
         self.pointer = arcade.Sprite('images/hudX.png')
+        self.loading_bar = arcade.Sprite('images/line.png')
+        self.setup()
+
+    def setup(self):
         self.pointer.scale = 0.25
         self.pointer.alpha = 200
+
+        self.loading_bar.height = 10
+        self.loading_bar.width = 1
 
     def rr(self, val):
         if self.grid:
@@ -115,10 +136,9 @@ class Careenium(arcade.Window):
 
     def delete_object(self, obj):
         """Deletes a given object from the world, as well as from anywhere it may be referenced."""
-        print('deleting ', obj)
-        obj.kill()
+        print(obj)
+        obj.remove_from_sprite_lists()  # note: you could also grep the joints with obj.pymunk_shape.body.constraints
         for joint in self.joints:
-            print('step 1')
             if obj.pymunk_shape.body in [joint[-1].a, joint[-1].b]:
                 self.joints.remove(joint)
                 self.space.remove(joint[-1])
@@ -131,7 +151,6 @@ class Careenium(arcade.Window):
             if pipe.pymunk_shape == obj.pymunk_shape:
                 self.pipes.remove(pipe)
         self.space.remove(obj.pymunk_shape, obj.pymunk_shape.body)
-        print('deleted ', obj)
 
     def clear_variables(self):  # just a holder function to clear everything
         self.point_pair = None
@@ -140,6 +159,7 @@ class Careenium(arcade.Window):
         self.mouse_button = None
         self.shape_a = None
         self.shape_a_connection_point = None
+        self.cur_shape = None
 
     def on_draw(self):
         arcade.start_render()
@@ -149,21 +169,18 @@ class Careenium(arcade.Window):
         self.sprite_list.draw()
         if self.point_pair and self.mouse_down and self.point_pair != self.mouse_pos:
             if self.mouse_button == 4:
-                arcade.draw_line(color=arcade.color.GREEN, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
+                arcade.draw_line(color=arcade.color.GREEN, start_x=self.point_pair.x, start_y=self.point_pair.y, end_x=self.mouse_pos.x, end_y=self.mouse_pos.y, line_width=2)
             elif self.mouse_button == 1 and self.object_mode < 4:
-                arcade.draw_line(color=arcade.color.RED, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
+                arcade.draw_line(color=arcade.color.RED, start_x=self.point_pair.x, start_y=self.point_pair.y, end_x=self.mouse_pos.x, end_y=self.mouse_pos.y, line_width=2)
             elif self.mouse_button == 1:
-                arcade.draw_line(color=arcade.color.BLUE, start_x=self.point_pair[0], start_y=self.point_pair[1], end_x=self.mouse_pos[0], end_y=self.mouse_pos[1], line_width=2)
+                arcade.draw_line(color=arcade.color.BLUE, start_x=self.point_pair.x, start_y=self.point_pair.y, end_x=self.mouse_pos.x, end_y=self.mouse_pos.y, line_width=2)
 
-        output = f"Processing time: {self.processing_time*1000:.0f}"
-        arcade.draw_text(output, 20, SCREEN_HEIGHT - 20, arcade.color.WHITE)
+        arcade.draw_text(text=f"{GAME_MODES[self.game_mode]}", start_x=SCREEN_WIDTH-128 + self.grid_fixer[0], start_y=32 + self.grid_fixer[1], color=arcade.color.WHITE, font_size=16)
+        arcade.draw_text(text=f"{OBJECT_MODES[self.object_mode]}", start_x=32 + self.grid_fixer[0], start_y=32 + self.grid_fixer[1], color=arcade.color.WHITE, font_size=16)
+        arcade.draw_text(text=f"{JOINT_MODES[self.joint_mode]}", start_x=256 + self.grid_fixer[0], start_y=32 + self.grid_fixer[1], color=arcade.color.WHITE, font_size=16)
 
-        output = f"Drawing time: {self.draw_time*1000:.0f}"
-        arcade.draw_text(output, 20, SCREEN_HEIGHT - 40, arcade.color.WHITE)
-        arcade.draw_text(text=f"{GAME_MODES[self.game_mode]}", start_x=400, start_y=32, color=arcade.color.WHITE, font_size=16, align='right')
-
-        arcade.draw_text(text=f"{OBJECT_MODES[self.object_mode]}", start_x=20, start_y=32, color=arcade.color.WHITE, font_size=16, align='right')
-        arcade.draw_text(text=f"{JOINT_MODES[self.joint_mode]}", start_x=100, start_y=32, color=arcade.color.WHITE, font_size=16, align='right')
+        self.loading_bar.width = SCREEN_WIDTH / 30 * (self.draw_time * 5000 + self.processing_time * 5000)
+        self.loading_bar.draw()
 
         if self.grid:
             self.pointer.position = self.mouse_pos
@@ -172,7 +189,7 @@ class Careenium(arcade.Window):
         self.draw_time = timeit.default_timer() - draw_start_time
 
     def make_circle(self, pos, vel=(0, 0)):
-        size = GRID
+        size = GRID - 1
         mass = 12.0
         moment = pymunk.moment_for_circle(mass, 0, size, (0, 0))
         body = pymunk.Body(mass, moment)
@@ -182,7 +199,7 @@ class Careenium(arcade.Window):
         shape.friction = FRICTION
         shape.elasticity = 0.3
         self.space.add(body, shape)
-        shape.filter = pymunk.ShapeFilter(mask=0b0001, categories=0b0001)
+        shape.filter = pymunk.ShapeFilter(mask=0b001, categories=0b001)
         sprite = CircleSprite(shape, f"images/hudPlayer_{random.choice(['beige', 'blue', 'green', 'pink', 'yellow'])}.png")
         self.sprite_list.append(sprite)
 
@@ -197,7 +214,7 @@ class Careenium(arcade.Window):
         shape.elasticity = 0.3
         shape.friction = FRICTION
         self.space.add(body, shape)
-        shape.filter = pymunk.ShapeFilter(mask=0b0001, categories=0b0001)
+        shape.filter = pymunk.ShapeFilter(mask=0b001, categories=0b001)
         sprite = BoxSprite(shape, "images/boxCrate.png", width=size, height=size)
         self.sprite_list.append(sprite)
 
@@ -209,8 +226,8 @@ class Careenium(arcade.Window):
         shape.friction = FRICTION
         shape.elasticity = 0.3
         self.space.add(body, shape)
-        shape.filter = pymunk.ShapeFilter(mask=0b0010, categories=0b0010)
-        sprite = CircleSprite(shape, "images/pipe.png", pipe_vel=vel)
+        shape.filter = pymunk.ShapeFilter(mask=0b010, categories=0b010)
+        sprite = CircleSprite(shape, "images/pipe.png", pipe_vel=vel, is_static=True)
         self.background_sprite_list.append(sprite)
         self.pipes.append(sprite)
 
@@ -224,7 +241,7 @@ class Careenium(arcade.Window):
         shape.friction = FRICTION
         shape.elasticity = 0.3
         self.space.add(body, shape)
-        shape.filter = pymunk.ShapeFilter(mask=0b0010, categories=0b0010)
+        shape.filter = pymunk.ShapeFilter(mask=0b010, categories=0b010)
         sprite = CircleSprite(shape, "images/pipe.png", pipe_vel=vel)
         self.background_sprite_list.append(sprite)
         self.pipes.append(sprite)
@@ -237,7 +254,24 @@ class Careenium(arcade.Window):
         shape.friction = FRICTION
         shape.elasticity = 1.0
         self.space.add(body, shape)
-        sprite = BoxSprite(shape, "images/boxCrate_double.png", width=size, height=size)
+        shape.filter = pymunk.ShapeFilter(mask=0b011, categories=0b011)
+        sprite = BoxSprite(shape, "images/boxCrate_double.png", width=size, height=size, is_static=True)
+        self.sprite_list.append(sprite)
+
+    def make_plank(self, start, end):
+        line_len = self.ol_pythag(start, end) / 2
+        verticies = ((line_len, 4), (line_len, -4), (-line_len, -4), (-line_len, 4))
+        mass = 12.0
+        moment = pymunk.moment_for_poly(mass, verticies)
+        body = pymunk.Body(mass, moment)
+        body.position = pymunk.Vec2d(start[0] + (end[0] - start[0]) / 2, start[1] + (end[1] - start[1]) / 2)
+        body.angle = math.atan2(end[1] - start[1], end[0] - start[0])
+        shape = pymunk.Poly(body, verticies)
+        shape.friction = FRICTION
+        shape.elasticity = 0.3
+        shape.filter = pymunk.ShapeFilter(mask=0b011, categories=0b011)
+        sprite = BoxSprite(shape, "images/plank.png", width=line_len * 2, height=8)
+        self.space.add(body, shape)
         self.sprite_list.append(sprite)
 
     def make_pin_joint(self, shape_a, shape_b, point_a, point_b):
@@ -250,7 +284,7 @@ class Careenium(arcade.Window):
         body.position = pymunk.Vec2d(point_a[0] + (point_b[0] - point_a[0]) / 2, point_a[1] + (point_b[1] - point_a[1]) / 2)
         shape = pymunk.Poly(body, vertices)
         body.angle = math.atan2(point_b[1] - point_a[1], point_b[0] - point_a[0])
-        sprite = BoxSprite(shape, "images/wood_joint.png", width=length * 2, height=4)
+        sprite = BoxSprite(shape, "images/plank.png", width=length * 2, height=4)
         self.background_sprite_list.append(sprite)
         joint = pymunk.PinJoint(shape_a.body, shape_b.body, shape_a.body.world_to_local(point_a), shape_b.body.world_to_local(point_b))
         self.joints.append((sprite, joint))
@@ -280,22 +314,27 @@ class Careenium(arcade.Window):
         self.space.add(joint)
         self.joints.append((sprite_a, sprite_b, joint))
 
+    def make_motor(self, shape_a, power):
+        body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        joint = pymunk.SimpleMotor(shape_a.body, body, power)
+        self.space.add(joint)
+
     def make_line(self, start, end):
         line_len = self.ol_pythag(start, end) / 2
-        verticies = ((line_len, 1), (line_len, -2), (-line_len, -2), (-line_len, 1))
+        verticies = ((line_len, 1), (line_len, -1), (-line_len, -1), (-line_len, 1))
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         body.position = pymunk.Vec2d(start[0] + (end[0] - start[0]) / 2, start[1] + (end[1] - start[1]) / 2)
         body.angle = math.atan2(end[1] - start[1], end[0] - start[0])
         shape = pymunk.Poly(body, verticies)
         shape.friction = FRICTION
         shape.elasticity = 0.95
-        sprite = BoxSprite(shape, "images/line.png", width=line_len * 2, height=3)
+        sprite = BoxSprite(shape, "images/line.png", width=line_len * 2, height=2, is_static=True)
 
         self.space.add(body, shape)
         self.background_sprite_list.append(sprite)
 
     def get_shape(self, pos):
-        shape_list = self.space.point_query(pos, 2, pymunk.ShapeFilter(mask=0b01111, categories=0b01111))
+        shape_list = self.space.point_query(pos, 5, pymunk.ShapeFilter())
         if shape_list:
             for sprite in self.sprite_list:
                 if sprite.pymunk_shape == shape_list[0].shape:
@@ -309,26 +348,25 @@ class Careenium(arcade.Window):
         self.mouse_down = True
         self.mouse_button = button
         self.point_pair = self.mouse_pos
-        cur_shape = self.get_shape(self.mouse_pos)
+        self.cur_shape = self.get_shape(self.mouse_pos)
         if button == 1:
             if modifiers in [0, 16]:
-                if cur_shape:
+                if self.cur_shape and not self.cur_shape.is_static:
                     self.mouse_down = False
-                    self.shape_being_dragged = cur_shape
-                    print('cool')
+                    self.shape_being_dragged = self.cur_shape
                 else:
                     self.mouse_down = True
-            elif cur_shape:
-                self.delete_object(cur_shape)
-        elif button == 4 and cur_shape:
-            self.shape_a = cur_shape.pymunk_shape
+            elif self.cur_shape:
+                self.delete_object(self.cur_shape)
+        elif button == 4 and self.cur_shape and not self.cur_shape.is_static:
+            self.shape_a = self.cur_shape.pymunk_shape
             self.shape_a_connection_point = self.mouse_pos
 
     def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
-        cur_shape = self.get_shape(self.mouse_pos)
+        self.cur_shape = self.get_shape(self.mouse_pos)
         if self.mouse_down:
+            vel = ((self.point_pair.x - self.mouse_pos.x) * 4, (self.point_pair.y - self.mouse_pos.y) * 4)
             if self.mouse_button == 1 and modifiers in [0, 16]:
-                vel = ((self.point_pair[0] - self.mouse_pos[0]) * 4, (self.point_pair[1] - self.mouse_pos[1]) * 4)
                 if self.object_mode == 0:
                     self.make_circle(self.point_pair, vel=vel)
                 elif self.object_mode == 1:
@@ -339,29 +377,44 @@ class Careenium(arcade.Window):
                     self.make_static(self.point_pair)
                 elif self.object_mode == 4:
                     self.make_moving_pipe(self.point_pair, vel=vel)
-            elif button == 4 and cur_shape and type(cur_shape.pymunk_shape) in [pymunk.shapes.Circle, pymunk.shapes.Poly]:  # add clause to ignore line polygons
-                cur_shape.pymunk_shape.velocity = 0, 0
-                if self.joint_mode == 0:
-                    self.make_pin_joint(self.shape_a, cur_shape.pymunk_shape, self.shape_a_connection_point, self.mouse_pos)
-                elif self.joint_mode == 1:
-                    self.make_slide_joint(self.shape_a, cur_shape.pymunk_shape, self.shape_a_connection_point, self.mouse_pos)
-            elif self.mouse_button == 4:
-                self.make_line(self.point_pair, self.mouse_pos)
+                elif self.object_mode == 5:
+                    self.make_plank(self.mouse_pos, self.point_pair)
+            elif button == 4:
+                if self.cur_shape and not self.cur_shape.is_static:
+                    self.cur_shape.pymunk_shape.velocity = 0, 0
+                    if self.joint_mode == 0 and self.shape_a != self.cur_shape.pymunk_shape:
+                        self.make_pin_joint(self.shape_a, self.cur_shape.pymunk_shape, self.shape_a_connection_point, self.mouse_pos)
+                    elif self.joint_mode == 1 and self.shape_a != self.cur_shape.pymunk_shape:
+                        self.make_slide_joint(self.shape_a, self.cur_shape.pymunk_shape, self.shape_a_connection_point, self.mouse_pos)
+                elif self.joint_mode == 2 and self.shape_a:
+                    intensity = min(self.ol_pythag(self.mouse_pos, self.point_pair) / 16, 20)
+                    dir = int(self.point_pair.x - self.mouse_pos.x > 0 or -1)
+                    self.make_motor(self.shape_a, intensity * dir)
+                elif self.ol_pythag(self.point_pair, self.mouse_pos) > 10:
+                    self.make_line(self.point_pair, self.mouse_pos)
+
         self.clear_variables()
 
     def on_mouse_motion(self, x, y, dx, dy):
         if self.snapping:
             if self.point_pair:
-                if abs(self.rr(x) - self.point_pair[0]) < abs(self.rr(y) - self.point_pair[1]):
-                    self.mouse_pos = self.point_pair[0], self.rr(y)
+                if abs(self.rr(x) - self.point_pair.x) < abs(self.rr(y) - self.point_pair.y):
+                    self.mouse_pos = Pos(self.point_pair.x + self.grid_fixer[1], self.rr(y + self.grid_fixer[1]))
                 else:
-                    self.mouse_pos = self.rr(x), self.point_pair[1]
+                    self.mouse_pos = Pos(self.rr(x + self.grid_fixer[0]), self.point_pair.y + self.grid_fixer[1])
             else:
-                self.mouse_pos = self.rr(x), self.rr(y)
+                self.mouse_pos = Pos(self.rr(x + self.grid_fixer[0]), self.rr(y + self.grid_fixer[1]))
         else:
-            self.mouse_pos = self.rr(x), self.rr(y)
+            self.mouse_pos = Pos(self.rr(x + self.grid_fixer[0]), self.rr(y + self.grid_fixer[1]))
         if self.mouse_button == 2 and self.mouse_down:
-            self.move_everybody((dx, dy))
+            self.grid_fixer[0] -= dx
+            self.grid_fixer[1] -= dy
+            self.set_viewport(self.grid_fixer[0], self.grid_fixer[0]+SCREEN_WIDTH, self.grid_fixer[1], self.grid_fixer[1]+SCREEN_HEIGHT)
+        elif self.cur_shape and not self.mouse_down and self.mouse_button == 1:
+            if self.grid:
+                self.cur_shape.pymunk_shape.body.position = self.mouse_pos
+            else:
+                self.cur_shape.pymunk_shape.body.position = self.cur_shape.pymunk_shape.body.position.x + dx, self.cur_shape.pymunk_shape.body.position.y + dy
 
     def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int):
         if (scroll_y > 0 and self.object_mode < len(OBJECT_MODES) - 1) or self.object_mode > 0 > scroll_y:
@@ -382,6 +435,8 @@ class Careenium(arcade.Window):
             self.joint_mode = 0
         if symbol == arcade.key.KEY_2:
             self.joint_mode = 1
+        if symbol == arcade.key.KEY_3:
+            self.joint_mode = 2
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.LSHIFT or arcade.key.RSHIFT:
@@ -399,17 +454,16 @@ class Careenium(arcade.Window):
         if not self.game_mode == 1:
             self.tick += 1
 
-            if self.tick % 60 == 0:
+            if self.tick % 1 == 0:
                 for pipe in self.pipes:
                     if pipe.pymunk_shape.body.body_type == 0:
-                        pipe.pymunk_shape.body.velocity = -pipe.pipe_vel[0], -pipe.pipe_vel[1]
+                        pipe.pymunk_shape.body.velocity = pipe.pymunk_shape.body.velocity[0] - pipe.pipe_vel[0], pipe.pymunk_shape.body.velocity[1] - pipe.pipe_vel[1]
                     self.make_circle(pipe.pymunk_shape.body.position, pipe.pipe_vel)
 
-        self.space.step(1 / 60.0)
+        if self.cur_shape:
+            self.cur_shape.pymunk_shape.body.velocity = 0, 0
 
-        if self.shape_being_dragged:
-            self.shape_being_dragged.pymunk_shape.body.position = self.mouse_pos
-            self.shape_being_dragged.pymunk_shape.body.velocity = 0, 0
+        self.space.step(1 / 600.0)
 
         for sprite in self.sprite_list:
             sprite.center_x = sprite.pymunk_shape.body.position.x
@@ -417,14 +471,16 @@ class Careenium(arcade.Window):
             sprite.angle = math.degrees(sprite.pymunk_shape.body.angle)
             if not(-SCREEN_WIDTH * 9 < sprite.pymunk_shape.body.position.y < SCREEN_WIDTH * 10) or not(-SCREEN_HEIGHT * 9 < sprite.pymunk_shape.body.position.y < SCREEN_HEIGHT * 10):
                 cur_shape = self.get_shape(sprite.pymunk_shape.body.position)
-                self.delete_object(cur_shape)
+                if cur_shape:
+                    self.delete_object(cur_shape)
         for sprite in self.background_sprite_list:
             sprite.center_x = sprite.pymunk_shape.body.position.x
             sprite.center_y = sprite.pymunk_shape.body.position.y
             sprite.angle = math.degrees(sprite.pymunk_shape.body.angle)
             if not(-SCREEN_WIDTH * 9 < sprite.pymunk_shape.body.position.y < SCREEN_WIDTH * 10) or not(-SCREEN_HEIGHT * 9 < sprite.pymunk_shape.body.position.y < SCREEN_HEIGHT * 10):
                 cur_shape = self.get_shape(sprite.pymunk_shape.body.position)
-                self.delete_object(cur_shape)
+                if cur_shape:
+                    self.delete_object(cur_shape)
 
         for joint in self.joints:
             if type(joint[-1]) is pymunk.constraint.PinJoint:
