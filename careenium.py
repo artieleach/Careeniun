@@ -2,9 +2,6 @@ import arcade
 import pymunk
 import math
 import random
-import timeit
-from collections import namedtuple
-import pickle
 
 GRID = 24
 
@@ -18,8 +15,6 @@ GAME_MODES = ['Gravity', 'Setup', 'Space']
 
 FRICTION = 0.95
 ELASTICITY = 0.4
-
-Pos = namedtuple('Position', 'x y')
 
 textures = [f'images/{i}.png' for i in
             ['boxCrate', 'boxCrate_double', 'line', 'wood_joint', 'pipe',
@@ -385,7 +380,6 @@ class Careenium(arcade.Window):
         interval = diff / num_points
         points = [pymunk.Vec2d(point_a.x - (interval.x * i), point_a.y - (interval.y * i)) for i in range(1, num_points)]
         point_list = list(zip(points[:-1], points[1:]))
-        bridge_len = GRID
         link_list = []
         for link in point_list:  # make this into a call to make_plank()
             cur_link = self.make_plank(*link, mass=4.0)
@@ -481,6 +475,9 @@ class Careenium(arcade.Window):
             self.camera_offset -= dx, dy
             self.set_viewport(self.camera_offset.x, self.camera_offset.x+SCREEN_WIDTH, self.camera_offset.y, self.camera_offset.y+SCREEN_HEIGHT)
         self.pointer.position = self.mouse_pos
+        cur_high = self.get_shape(self.mouse_pos)
+        if cur_high:
+            self.highlight_shape(cur_high)
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
         if 10 < x < 110 and 20 < y < 60:
@@ -528,14 +525,6 @@ class Careenium(arcade.Window):
         if symbol == arcade.key.G:
             self.snap_to_center = not self.snap_to_center
 
-        if symbol == arcade.key.S:
-            with open("game_state.pickle", "wb") as f:
-                pickle.dump(self.space, f)
-
-        if symbol == arcade.key.L:
-            with open("game_state.pickle", "rb") as f:
-                self.space = pickle.load(f)
-
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.LSHIFT or arcade.key.RSHIFT:
             self.straight_lines = False
@@ -555,13 +544,16 @@ class Careenium(arcade.Window):
         if self.cur_shape:
             self.cur_shape.pymunk_shape.body.velocity = 0, 0
 
+        if self.last_shape:
+            self.highlight_shape(self.last_shape)
+
         if self.follow_shape:
             self.camera_offset.x =int(self.follow_shape.pymunk_shape.body.position.x) - SCREEN_WIDTH / 2
             self.camera_offset.y = int(self.follow_shape.pymunk_shape.body.position.y) - SCREEN_HEIGHT / 2
             self.set_viewport(self.camera_offset.x, self.camera_offset.x+SCREEN_WIDTH, self.camera_offset.y, self.camera_offset.y+SCREEN_HEIGHT)
 
 
-        self.space.step(1 / 240.0)
+        self.space.step(1 / 240.0)  # some code needs to be rewritten so this doesnt allow "static" objects to fall a lil
         self.space.step(1 / 240.0)
         self.space.step(1 / 240.0)
 
