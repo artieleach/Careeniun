@@ -17,18 +17,21 @@ GAME_MODES = ['Gravity', 'Setup', 'Space']
 FRICTION = 0.95
 ELASTICITY = 0.4
 
+COLORS = {'green': (104, 183, 35), 'red': (198, 38, 46), 'blue': (54, 137, 230), 'yellow': (249, 196, 64)}
+
 textures = [f'images/{i}.png' for i in
             ['boxCrate', 'boxCrate_double', 'line', 'wood_joint', 'pipe',
              'hudPlayer_beige', 'hudPlayer_blue', 'hudPlayer_green',
              'hudPlayer_pink', 'hudPlayer_yellow', 'bridgeC.png', 'ui/blue_hover.png',
              'ui/blue_normal.png', 'ui/blue_pressed.png', 'ui/locked.png']]
- #  TODO:
- #  -> shapes, including static shapes, fall slightly due to the multiple calls to
- #     self.space.step, switching back to kinematic static shapes will solve that
- #     but then the problem of self.cur_shape falling remains. have a think.
- #  -> Make slide joints use multiple sprites
- #  -> Left clicking and dragging sometimes results in the cursor getting stuck
 
+
+#  TODO:
+#  -> shapes, including static shapes, fall slightly due to the multiple calls to
+#     self.space.step, switching back to kinematic static shapes will solve that
+#     but then the problem of self.cur_shape falling remains. have a think.
+#  -> Make slide joints use multiple sprites
+#  -> Left clicking and dragging sometimes results in the cursor getting stuck
 
 
 class PhysicsSprite(arcade.Sprite):
@@ -75,11 +78,11 @@ class BoxSprite(PhysicsSprite):
 
 
 class Button(arcade.Sprite):
-    def __init__(self, position, value, list_of_vals):
+    def __init__(self, position: Vec2d, value, list_of_vals):
         super().__init__('images/ui/blue_normal.png')
         self.value = value
         self.list_of_vals = list_of_vals
-        self.position = position
+        self.position = Vec2d(position)
         self.textures = [arcade.load_texture('images/ui/blue_normal.png'),
                          arcade.load_texture('images/ui/blue_hover.png'),
                          arcade.load_texture('images/ui/blue_pressed.png'),
@@ -91,7 +94,7 @@ class Button(arcade.Sprite):
     def draw(self):
         arcade.draw_texture_rectangle(center_x=self.position.x,
                                       center_y=self.position.y,
-                                      width=GRID*4, height=GRID*2,
+                                      width=GRID * 4, height=GRID * 2,
                                       texture=self.textures[self.state])
         arcade.draw_text(text=f"{self.list_of_vals[self.value]}",
                          start_x=self.center_x, start_y=self.center_y + self.center_y / 8,
@@ -113,6 +116,7 @@ class Button(arcade.Sprite):
             self.value += 1
         else:
             self.value = 0
+
 
 class Careenium(arcade.Window):
     def __init__(self, width, height, title):
@@ -175,13 +179,20 @@ class Careenium(arcade.Window):
         self.highlight_box = arcade.Sprite('images/highlight_box.png')
         self.highlight_box.alpha = 150
 
-        self.object_mode_button = Button(position=Vec2d(GRID*3, GRID), value=0, list_of_vals=OBJECT_MODES)
-        self.game_mode_button = Button(position=Vec2d(GRID*8, GRID), value=0, list_of_vals=GAME_MODES)
-        self.constraint_mode_button = Button(position=Vec2d(GRID*13, GRID), value=0, list_of_vals=CONSTRAINT_MODES)
-        self.grid_button = Button(position=Vec2d(GRID*18, GRID), value=0, list_of_vals=['Grid\nOff', 'Grid\nOn'])
-        self.snap_to_center_button = Button(position=Vec2d(GRID*23, GRID), value=0, list_of_vals=['Snapping\nOff', 'Snapping\nOn'])
-        self.shape_dynamic_button = Button(position=Vec2d(GRID*28, GRID), value=1, list_of_vals=['Static\nOn', 'Static\nOff'])
-        self.straight_lines_button = Button(position=Vec2d(GRID*33, GRID), value=0, list_of_vals=['Straighten\nOff', 'Straighten\nOn'])
+        self.object_mode_button = Button(position=Vec2d(GRID * 3, GRID), value=0,
+                                         list_of_vals=OBJECT_MODES)
+        self.game_mode_button = Button(position=Vec2d(GRID * 8, GRID), value=0,
+                                       list_of_vals=GAME_MODES)
+        self.constraint_mode_button = Button(position=Vec2d(GRID * 13, GRID), value=0,
+                                             list_of_vals=CONSTRAINT_MODES)
+        self.grid_button = Button(position=Vec2d(GRID * 18, GRID), value=0,
+                                  list_of_vals=['Grid\nOff', 'Grid\nOn'])
+        self.snap_to_center_button = Button(position=Vec2d(GRID * 23, GRID), value=0,
+                                            list_of_vals=['Snapping\nOff', 'Snapping\nOn'])
+        self.shape_dynamic_button = Button(position=Vec2d(GRID * 28, GRID), value=1,
+                                           list_of_vals=['Static\nOn', 'Static\nOff'])
+        self.straight_lines_button = Button(position=Vec2d(GRID * 33, GRID), value=0,
+                                            list_of_vals=['Straighten\nOff', 'Straighten\nOn'])
         self.buttons.extend([self.object_mode_button, self.game_mode_button,
                              self.constraint_mode_button, self.grid_button,
                              self.snap_to_center_button, self.shape_dynamic_button,
@@ -200,7 +211,6 @@ class Careenium(arcade.Window):
         if GAME_MODES[self.game_mode] == 'Space':
             self.space.gravity = (0.0, 0.0)
             self.space.damping = 1
-
 
     def get_shape(self, pos):
         shape_list = self.space.point_query(pos, 4, pm.ShapeFilter())
@@ -248,7 +258,8 @@ class Careenium(arcade.Window):
 
     def clear_variables(self):
         if self.shape_being_dragged and self.cur_shape.pm_shape.body.body_type == 0:
-            self.space.remove(self.shape_being_dragged)
+            self.space.remove(
+                self.shape_being_dragged)  # so i think this is deleting the thing that the mouse is connected to
         self.shape_being_dragged = None
         self.last_shape = None
         self.last_shape_connection_point = None
@@ -258,7 +269,6 @@ class Careenium(arcade.Window):
         self.mouse_button = None
         for joint in self.mouse_body.constraints:
             self.space.remove(joint)
-
 
     def on_draw(self):
         arcade.start_render()
@@ -273,24 +283,25 @@ class Careenium(arcade.Window):
         if not self.shape_being_dragged and self.point_pair and self.mouse_down and self.point_pair != self.mouse_pos:
             a = self.point_pair
             b = self.mouse_pos
+            tenative_shape = self.get_shape(self.mouse_pos)
             if self.mouse_button == 4:
-                if self.last_shape and self.cur_shape and self.get_shape(self.mouse_pos):
+                if self.last_shape and self.cur_shape and tenative_shape:
                     a = self.last_shape.pm_shape.body.position
-                    color = (104, 183, 35)
+                    color = COLORS['yellow']
                 elif self.last_shape or self.get_shape(self.mouse_pos):
                     if self.last_shape:
                         a = self.last_shape.pm_shape.body.position
-                    if self.get_shape(self.mouse_pos):
-                        b = self.cur_shape.pm_shape.body.position
-                    color = (198, 38, 46)
+                    if tenative_shape:
+                        b = tenative_shape.pm_shape.body.position
+                    color = COLORS['red']
                 else:
-                    color = (54, 137, 230)
+                    color = COLORS['blue']
             else:
-                color = (249, 196, 64)
+                color = COLORS['green']
             arcade.draw_line(color=color, start_x=a.x, start_y=a.y, end_x=b.x, end_y=b.y, line_width=2)
 
         for button in self.buttons:
-            check =  int(button.check_pos(self.mouse_pos))
+            check = int(button.check_pos(self.mouse_pos))
             button.state = check + int(self.mouse_down) * check
             button.center_y = button.position.y + self.camera_offset.y
             button.center_x = button.position.x + self.camera_offset.x
@@ -298,7 +309,6 @@ class Careenium(arcade.Window):
                 self.mouse_down = False
 
         self.pointer.draw()
-
 
     def make_circle(self, pos, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=12.0):
         sprite = CircleSprite(pos, mass, vel, friction, elasticity, self.shape_dynamic)
@@ -344,7 +354,8 @@ class Careenium(arcade.Window):
         self.pipes.append(sprite)
         return sprite
 
-    def make_plank(self, start, end, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=12.0, image='images/plank.png'):
+    def make_plank(self, start, end, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=12.0,
+                   image='images/plank.png'):
         start = Vec2d(start)
         end = Vec2d(end)
         length = start.get_distance(end) / 2
@@ -354,7 +365,7 @@ class Careenium(arcade.Window):
             body = pm.Body(mass, moment)
         else:
             body = pm.Body(body_type=pm.Body.KINEMATIC)
-        body.position = start + (end-start) / 2
+        body.position = start + (end - start) / 2
         body.angle = math.atan2(end.y - start.y, end.x - start.x)
         body.velocity = vel
         shape = pm.Poly(body, verticies)
@@ -366,8 +377,7 @@ class Careenium(arcade.Window):
         self.sprite_list.append(sprite)
         return sprite
 
-
-    def make_pin_joint(self, shape_a, shape_b, point_a, point_b, error_bias = 0.0):
+    def make_pin_joint(self, shape_a, shape_b, point_a, point_b, error_bias=0.0):
         point_a = Vec2d(point_a)
         point_b = Vec2d(point_b)
         world_a = shape_a.body.local_to_world(point_a)
@@ -423,7 +433,7 @@ class Careenium(arcade.Window):
         length = start.get_distance(end) / 2
         verticies = ((length, 1), (length, -1), (-length, -1), (-length, 1))
         body = pm.Body(body_type=pm.Body.KINEMATIC)
-        body.position = start + (end-start) / 2
+        body.position = start + (end - start) / 2
         body.angle = math.atan2(end.y - start.y, end.x - start.x)
         body.velocity = vel
         shape = pm.Poly(body, verticies)
@@ -449,27 +459,31 @@ class Careenium(arcade.Window):
             cur_link = self.make_plank(*link, mass=4.0, image='images/bridgeC.png')
             joint_spot = GRID - GRID / 4
             if not link_list:
-                self.make_pin_joint(shape_a, cur_link.pm_shape,  (0, 0), (-joint_spot, 0), error_bias=pow(1.0 - 0.1, 60.0))
+                self.make_pin_joint(shape_a, cur_link.pm_shape, (0, 0), (-joint_spot, 0),
+                                    error_bias=pow(1.0 - 0.1, 60.0))
             elif len(link_list) < len(point_list) - 1:
-                self.make_pin_joint(cur_link.pm_shape, link_list[-1].pm_shape, (-joint_spot, 0),  (joint_spot, 0), error_bias=pow(1.0 - 0.1, 60.0))
+                self.make_pin_joint(cur_link.pm_shape, link_list[-1].pm_shape, (-joint_spot, 0), (joint_spot, 0),
+                                    error_bias=pow(1.0 - 0.1, 60.0))
             else:
-                self.make_pin_joint(cur_link.pm_shape, shape_b, (joint_spot, 0), (0, 0), error_bias=pow(1.0 - 0.1, 60.0))
-                self.make_pin_joint(cur_link.pm_shape, link_list[-1].pm_shape, (-joint_spot, 0),  (joint_spot, 0), error_bias=pow(1.0 - 0.1, 60.0))
+                self.make_pin_joint(cur_link.pm_shape, shape_b, (joint_spot, 0), (0, 0),
+                                    error_bias=pow(1.0 - 0.1, 60.0))
+                self.make_pin_joint(cur_link.pm_shape, link_list[-1].pm_shape, (-joint_spot, 0), (joint_spot, 0),
+                                    error_bias=pow(1.0 - 0.1, 60.0))
             link_list.append(cur_link)
-
 
     def on_mouse_press(self, x, y, button, modifiers):
         self.mouse_down = True
         self.mouse_button = button
         self.point_pair = self.mouse_pos
         self.cur_shape = self.get_shape(self.mouse_pos)
-        if y > GRID*2:
+        if y > GRID * 2:
             if self.mouse_button == 1:
                 if modifiers in [0, 16]:
                     if self.cur_shape:
                         if self.cur_shape.pm_shape.body.body_type == 0:
                             dist = self.mouse_body.position.get_distance(self.cur_shape.pm_shape.body.position)
-                            ds = pm.DampedSpring(self.mouse_body, self.cur_shape.pm_shape.body, (0, 0), (0, 0), dist, 10000, 1000)
+                            ds = pm.DampedSpring(self.mouse_body, self.cur_shape.pm_shape.body, (0, 0), (0, 0), dist,
+                                                 10000, 1000)
                             self.space.add(ds)
                             self.shape_being_dragged = ds
                         else:
@@ -488,12 +502,19 @@ class Careenium(arcade.Window):
 
     def on_mouse_release(self, x, y, button, modifiers):
         self.mode_setter()
-        if y > GRID*2:
+        self.mouse_down = False
+        if y > GRID * 2:  # if not clicking a button...
+            
             self.cur_shape = self.get_shape(self.mouse_pos)
+
             if not self.shape_being_dragged:
+
                 vel = (self.point_pair - self.mouse_pos) * 4
+
                 if self.mouse_button == 1 and modifiers in [0, 16]:
+
                     mode = OBJECT_MODES[self.object_mode]
+
                     if mode == 'Circle':
                         self.make_circle(pos=self.point_pair, vel=vel)
                     if mode == 'Box':
@@ -503,8 +524,11 @@ class Careenium(arcade.Window):
                     if mode == 'Plank' and self.mouse_pos.get_distance(self.point_pair) > GRID:
                         self.make_plank(start=self.point_pair, end=self.mouse_pos)
                 elif button == 4 and self.mouse_pos.get_distance(self.point_pair) > GRID:
+
                     mode = CONSTRAINT_MODES[self.constraint_mode]
-                    if self.cur_shape and (type(self.cur_shape.pm_shape.body) is not pm.Body.KINEMATIC or type(self.last_shape.pm_shape.body) is not pm.Body.KINEMATIC):
+
+                    if self.cur_shape and (type(self.cur_shape.pm_shape.body) is not pm.Body.KINEMATIC or type(
+                            self.last_shape.pm_shape.body) is not pm.Body.KINEMATIC):
                         if self.snap_to_center:
                             connect_a = Vec2d(0, 0)
                             connect_b = Vec2d(0, 0)
@@ -514,25 +538,26 @@ class Careenium(arcade.Window):
                         if mode == 'Pin':
                             self.make_pin_joint(self.last_shape.pm_shape, self.cur_shape.pm_shape, connect_a, connect_b)
                         elif mode == 'Slide':
-                            self.make_slide_joint(self.last_shape.pm_shape, self.cur_shape.pm_shape, connect_a, connect_b)
+                            self.make_slide_joint(self.last_shape.pm_shape, self.cur_shape.pm_shape, connect_a,
+                                                  connect_b)
                         elif mode == 'Bridge':
                             if self.point_pair.get_distance(self.mouse_pos) > GRID * 6:
                                 self.make_bridge(self.last_shape.pm_shape, self.cur_shape.pm_shape)
                     elif mode == 'Motor':
                         intensity = min(self.mouse_pos.get_distance(self.point_pair) / 16, 20)
                         direction = int(self.point_pair.x - self.mouse_pos.x > 0) or -1
-                        self.make_motor(self.last_shape.pm_shape, intensity*direction)
+                        self.make_motor(self.last_shape.pm_shape, intensity * direction)
                     elif self.mouse_pos.get_distance(self.point_pair) > 10 and not self.last_shape:
                         self.make_line(self.point_pair, self.mouse_pos)
             self.clear_variables()
-        else:
+
+        else:  # if clicking a button
             self.object_mode = self.object_mode_button.value
             self.game_mode = self.game_mode_button.value
             self.constraint_mode = self.constraint_mode_button.value
             self.grid = bool(self.grid_button.value)
             self.snap_to_center = bool(self.snap_to_center_button.value)
             self.shape_dynamic = bool(self.shape_dynamic_button.value)
-
 
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         if self.grid:
@@ -556,16 +581,15 @@ class Careenium(arcade.Window):
             else:
                 self.cur_shape.pm_shape.body.position += dx, dy
         elif self.snap_to_center:
-            shape = self.get_shape(self.mouse_pos) # as a prereq for there being a cur_shape, the mouse must be down.
+            shape = self.get_shape(self.mouse_pos)  # as a prereq for there being a cur_shape, the mouse must be down.
             if shape:
                 self.mouse_pos = shape.pm_shape.body.position
         elif self.mouse_button == 2:
             self.camera_offset -= dx, dy
-            self.set_viewport(self.camera_offset.x, self.camera_offset.x+SCREEN_WIDTH, self.camera_offset.y, self.camera_offset.y+SCREEN_HEIGHT)
+            self.set_viewport(self.camera_offset.x, self.camera_offset.x + SCREEN_WIDTH, self.camera_offset.y,
+                              self.camera_offset.y + SCREEN_HEIGHT)
         self.pointer.position = self.mouse_pos
         self.mouse_body.position = self.mouse_pos
-
-
 
     def on_key_press(self, symbol: int, modifiers: int):
         if symbol == arcade.key.LSHIFT or arcade.key.RSHIFT:
@@ -574,7 +598,6 @@ class Careenium(arcade.Window):
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.LSHIFT or arcade.key.RSHIFT:
             self.straight_lines = False
-
 
     def on_update(self, delta_time):
         if not self.game_mode == 1:
@@ -591,12 +614,13 @@ class Careenium(arcade.Window):
             self.highlight_shape(self.last_shape)
 
         if self.follow_shape:
-            self.camera_offset.x =int(self.follow_shape.pm_shape.body.position.x) - SCREEN_WIDTH / 2
+            self.camera_offset.x = int(self.follow_shape.pm_shape.body.position.x) - SCREEN_WIDTH / 2
             self.camera_offset.y = int(self.follow_shape.pm_shape.body.position.y) - SCREEN_HEIGHT / 2
-            self.set_viewport(self.camera_offset.x, self.camera_offset.x+SCREEN_WIDTH, self.camera_offset.y, self.camera_offset.y+SCREEN_HEIGHT)
+            self.set_viewport(self.camera_offset.x, self.camera_offset.x + SCREEN_WIDTH, self.camera_offset.y,
+                              self.camera_offset.y + SCREEN_HEIGHT)
 
-
-        self.space.step(1 / 240.0)  # some code needs to be rewritten so this doesnt allow "static" objects to fall a lil
+        self.space.step(
+            1 / 240.0)  # some code needs to be rewritten so this doesnt allow "static" objects to fall a lil
         self.space.step(1 / 240.0)
         self.space.step(1 / 240.0)
 
@@ -606,7 +630,8 @@ class Careenium(arcade.Window):
             sprite.angle = math.degrees(sprite.pm_shape.body.angle)
             if sprite == self.cur_shape:
                 self.highlight_shape(self.cur_shape)
-            if not (-SCREEN_WIDTH * 9 < sprite.pm_shape.body.position.y < SCREEN_WIDTH * 10) or not (-SCREEN_HEIGHT * 9 < sprite.pm_shape.body.position.y < SCREEN_HEIGHT * 10):
+            if not (-SCREEN_WIDTH * 9 < sprite.pm_shape.body.position.y < SCREEN_WIDTH * 10) or not (
+                    -SCREEN_HEIGHT * 9 < sprite.pm_shape.body.position.y < SCREEN_HEIGHT * 10):
                 cur_shape = self.get_shape(sprite.pm_shape.body.position)
                 if cur_shape:
                     self.delete_object(cur_shape)
@@ -618,7 +643,8 @@ class Careenium(arcade.Window):
             sprite.center_x = sprite.pm_shape.body.position.x
             sprite.center_y = sprite.pm_shape.body.position.y
             sprite.angle = math.degrees(sprite.pm_shape.body.angle)
-            if not (-SCREEN_WIDTH * 9 < sprite.pm_shape.body.position.y < SCREEN_WIDTH * 10) or not (-SCREEN_HEIGHT * 9 < sprite.pm_shape.body.position.y < SCREEN_HEIGHT * 10):
+            if not (-SCREEN_WIDTH * 9 < sprite.pm_shape.body.position.y < SCREEN_WIDTH * 10) or not (
+                    -SCREEN_HEIGHT * 9 < sprite.pm_shape.body.position.y < SCREEN_HEIGHT * 10):
                 cur_shape = self.get_shape(sprite.pm_shape.body.position)
                 if cur_shape:
                     self.delete_object(cur_shape)
