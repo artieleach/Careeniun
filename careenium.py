@@ -63,19 +63,66 @@ class CircleSprite(PhysicsSprite):
         self.height = size * 2
 
 
-class PipeSprite(CircleSprite):
-    def __init__(self, pm_shape, filename, pipe_shape, pipe_velocity):
-        super().__init__(pm_shape, filename)
+class PipeSprite(PhysicsSprite):
+    def __init__(self, pos, mass, vel, friction, elasticity, is_dynamic, pipe_shape):
+        print('Pipe Sprite Called')
+        pos = Vec2d(pos)
+        size = GRID
+        moment = pm.moment_for_circle(mass, 0, size, (0, 0))
+        if is_dynamic:
+            body = pm.Body(mass, moment)
+        else:
+            body = pm.Body(body_type=pm.Body.KINEMATIC)
+        body.position = Vec2d(pos)
+        shape = pm.Circle(body, size, Vec2d(0, 0))
+        shape.friction = friction
+        shape.elasticity = elasticity
+        shape.filter = pm.ShapeFilter(mask=0b010, categories=0b010)
+        super().__init__(shape, f"images/pipe.png")
+        self.width = size * 2
+        self.height = size * 2
         self.pipe_shape = pipe_shape
-        self.pipe_velocity = pipe_velocity
+        self.pipe_velocity = vel
+
+
+class PolySprite(PhysicsSprite):
+    def __init__(self, pos, vel, width, height, is_dynamic, mass=12.0, friction=FRICTION, elasticity=ELASTICITY):
+        pos = Vec2d(pos)
+        size = GRID * 2
+        moment = pm.moment_for_box(mass, (width, height))
+        if is_dynamic:
+            body = pm.Body(mass, moment)
+        else:
+            body = pm.Body(body_type=pm.Body.KINEMATIC)
+        body.position = Vec2d(pos)
+        body.velocity = vel * int(is_dynamic)
+        shape = pm.Poly.create_box(body, (size, size))
+        shape.friction = friction
+        shape.elasticity = elasticity
+        shape.filter = pm.ShapeFilter(mask=0b001, categories=0b001)
+        super().__init__(shape, "images/boxCrate.png")
+        self.width = size
+        self.height = size
 
 
 class BoxSprite(PhysicsSprite):
-    def __init__(self, pm_shape, filename, width, height):
-        super().__init__(pm_shape, filename)
-        self.width = width
-        self.height = height
-
+    def __init__(self, pos, vel, is_dynamic, mass=12.0, friction=FRICTION, elasticity=ELASTICITY):
+        pos = Vec2d(pos)
+        size = GRID * 2
+        moment = pm.moment_for_box(mass, (size, size))
+        if is_dynamic:
+            body = pm.Body(mass, moment)
+        else:
+            body = pm.Body(body_type=pm.Body.KINEMATIC)
+        body.position = Vec2d(pos)
+        body.velocity = vel * int(is_dynamic)
+        shape = pm.Poly.create_box(body, (size, size))
+        shape.friction = friction
+        shape.elasticity = elasticity
+        shape.filter = pm.ShapeFilter(mask=0b001, categories=0b001)
+        super().__init__(shape, "images/boxCrate.png")
+        self.width = size
+        self.height = size
 
 class Button(arcade.Sprite):
     def __init__(self, position: Vec2d, value, list_of_vals):
@@ -310,50 +357,6 @@ class Careenium(arcade.Window):
 
         self.pointer.draw()
 
-    def make_circle(self, pos, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=12.0):
-        sprite = CircleSprite(pos, mass, vel, friction, elasticity, self.shape_dynamic)
-        self.space.add(sprite.pm_shape.body, sprite.pm_shape)
-        self.sprite_list.append(sprite)
-        return sprite
-
-    def make_box(self, pos, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=12.0):
-        pos = Vec2d(pos)
-        size = GRID * 2
-        moment = pm.moment_for_box(mass, (size, size))
-        if self.shape_dynamic:
-            body = pm.Body(mass, moment)
-        else:
-            body = pm.Body(body_type=pm.Body.KINEMATIC)
-        body.position = Vec2d(pos)
-        body.velocity = vel
-        shape = pm.Poly.create_box(body, (size, size))
-        shape.elasticity = elasticity
-        shape.friction = friction
-        shape.filter = pm.ShapeFilter(mask=0b001, categories=0b001)
-        self.space.add(body, shape)
-        sprite = BoxSprite(shape, "images/boxCrate.png", width=size, height=size)
-        self.sprite_list.append(sprite)
-        return sprite
-
-    def make_pipe(self, pos, shape_to_drop, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=14.0):
-        pos = Vec2d(pos)
-        size = GRID + 1
-        moment = pm.moment_for_circle(mass, 0, size, Vec2d(0, 0))
-        if self.shape_dynamic:
-            body = pm.Body(mass, moment)
-        else:
-            body = pm.Body(body_type=pm.Body.KINEMATIC)
-        body.position = Vec2d(pos)
-        shape = pm.Circle(body, size, (0, 0))
-        shape.friction = friction
-        shape.elasticity = elasticity
-        self.space.add(body, shape)
-        shape.filter = pm.ShapeFilter(mask=0b010, categories=0b010)
-        sprite = PipeSprite(pm_shape=shape, filename="images/pipe.png", pipe_shape=shape_to_drop, pipe_velocity=vel)
-        self.background_sprite_list.append(sprite)
-        self.pipes.append(sprite)
-        return sprite
-
     def make_plank(self, start, end, vel=(0, 0), friction=FRICTION, elasticity=ELASTICITY, mass=12.0,
                    image='images/plank.png'):
         start = Vec2d(start)
@@ -373,7 +376,7 @@ class Careenium(arcade.Window):
         shape.friction = friction
         shape.filter = pm.ShapeFilter(mask=0b001, categories=0b001)
         self.space.add(body, shape)
-        sprite = BoxSprite(shape, image, width=length * 2, height=8)
+        sprite = BoxSprite(shape, image)
         self.sprite_list.append(sprite)
         return sprite
 
@@ -403,17 +406,17 @@ class Careenium(arcade.Window):
 
         body = pm.Body(body_type=pm.Body.KINEMATIC)
         shape = pm.Poly(body, vertices)
-        sprite_a = BoxSprite(shape, "images/line.png", width=length, height=8)
+        sprite_a = BoxSprite(shape, "images/line.png")
         self.background_sprite_list.append(sprite_a)
 
         body = pm.Body(body_type=pm.Body.KINEMATIC)
         shape = pm.Poly(body, vertices)
-        sprite_b = BoxSprite(shape, "images/line_a.png", width=length, height=8)
+        sprite_b = BoxSprite(shape, "images/line_a.png")
         self.background_sprite_list.append(sprite_b)
 
         body = pm.Body(body_type=pm.Body.KINEMATIC)
         shape = pm.Poly(body, vertices)
-        sprite_c = BoxSprite(shape, "images/line_b.png", width=length, height=8)
+        sprite_c = BoxSprite(shape, "images/line_b.png")
         self.background_sprite_list.append(sprite_c)
 
         joint = pm.SlideJoint(shape_a.body, shape_b.body, point_a, point_b, min=length * 2, max=length * 4)
@@ -441,7 +444,7 @@ class Careenium(arcade.Window):
         shape.friction = friction
         shape.filter = pm.ShapeFilter(mask=0b111, categories=0b111)
         self.space.add(body, shape)
-        sprite = BoxSprite(shape, "images/line.png", width=length * 2, height=2)
+        sprite = BoxSprite(shape, "images/line.png", is_dynamic=False)
         self.background_sprite_list.append(sprite)
 
     def make_bridge(self, shape_a, shape_b):
@@ -470,6 +473,27 @@ class Careenium(arcade.Window):
                 self.make_pin_joint(cur_link.pm_shape, link_list[-1].pm_shape, (-joint_spot, 0), (joint_spot, 0),
                                     error_bias=pow(1.0 - 0.1, 60.0))
             link_list.append(cur_link)
+
+    def make_shape(self, pos, vel, shape):
+        if shape == 'Circle':
+            sprite = CircleSprite(pos=pos, mass=12.0, vel=vel, friction=FRICTION, elasticity=ELASTICITY, is_dynamic=self.shape_dynamic)
+            self.space.add(sprite.pm_shape.body, sprite.pm_shape)
+            self.sprite_list.append(sprite)
+            return sprite
+        elif shape == 'Box':
+            sprite = BoxSprite(pos=pos, mass=12.0, vel=vel, friction=FRICTION, elasticity=ELASTICITY,
+                               is_dynamic=self.shape_dynamic)
+            self.space.add(sprite.pm_shape.body, sprite.pm_shape)
+            self.sprite_list.append(sprite)
+        elif shape == 'Pipe':
+            sprite = PipeSprite(pos=pos, mass=12.0, vel=vel, friction=FRICTION, elasticity=ELASTICITY,
+                                is_dynamic=self.shape_dynamic, pipe_shape=OBJECT_MODES[self.object_mode])
+            self.space.add(sprite.pm_shape.body, sprite.pm_shape)
+            self.sprite_list.append(sprite)
+            self.pipes.append(sprite)
+            return sprite
+        elif shape == 'Plank' and pos.get_distance(self.point_pair) > GRID:
+            self.make_plank(start=self.point_pair, end=pos)
 
     def on_mouse_press(self, x, y, button, modifiers):
         self.mouse_down = True
@@ -513,16 +537,8 @@ class Careenium(arcade.Window):
 
                 if self.mouse_button == 1 and modifiers in [0, 16]:
 
-                    mode = OBJECT_MODES[self.object_mode]
-
-                    if mode == 'Circle':
-                        self.make_circle(pos=self.point_pair, vel=vel)
-                    if mode == 'Box':
-                        self.make_box(pos=self.point_pair, vel=vel)
-                    if mode == 'Pipe':
-                        self.make_pipe(pos=self.point_pair, shape_to_drop='Circle', vel=vel)
-                    if mode == 'Plank' and self.mouse_pos.get_distance(self.point_pair) > GRID:
-                        self.make_plank(start=self.point_pair, end=self.mouse_pos)
+                    self.make_shape(self.point_pair, vel, OBJECT_MODES[self.object_mode])
+                    print('got past')
                 elif button == 4 and self.mouse_pos.get_distance(self.point_pair) > GRID:
 
                     mode = CONSTRAINT_MODES[self.constraint_mode]
@@ -605,10 +621,8 @@ class Careenium(arcade.Window):
             if self.tick % 60 == 0:
                 for pipe in self.pipes:
                     pipe.pm_shape.body.velocity -= pipe.pipe_velocity
-                    if pipe.pipe_shape == 'Circle':
-                        self.make_circle(pipe.pm_shape.body.position, pipe.pipe_velocity)
-                    if pipe.pipe_shape == 'Box':
-                        self.make_box(pipe.pm_shape.body.position, pipe.pipe_velocity)
+                    self.make_shape(pipe.pm_shape.body.position, pipe.pipe_velocity, pipe.pipe_shape)
+                    print('cool')
 
         if self.last_shape:
             self.highlight_shape(self.last_shape)
